@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using Wasmtime;
 
@@ -10,6 +11,8 @@ namespace Opa.Wasm
 		private int _dataAddr;
 		private int _baseHeapPtr;
 		private int _dataHeapPtr;
+		private int _inputAddr;
+		private int _inputSize;
 
 		private Linker _linker;
 		private Store _store;
@@ -301,11 +304,24 @@ namespace Opa.Wasm
 		// https://github.com/open-policy-agent/opa/issues/3696#issuecomment-891662230
 		private string FastEvaluate(string json, int? entrypoint)
 		{
+			// ensure reusable input buffer is large enough
+			var length = Encoding.UTF8.GetByteCount(json);
+			if (_inputSize < length)
+			{
+				if (_inputAddr != 0)
+				{
+					Policy_opa_free(_inputAddr);
+				}
+
+				_inputSize = length * 2;
+				_inputAddr = Policy_opa_malloc(_inputSize);
+			}
+
 			if (!entrypoint.HasValue) entrypoint = 0; // use default entry point
 
-			_envMemory.WriteString(_store, _dataHeapPtr, json);
+			_envMemory.WriteString(_store, _inputAddr, json);
 
-			int resultaddr = Policy_opa_eval(entrypoint.Value, _dataAddr, _dataHeapPtr, json.Length, _dataHeapPtr + json.Length);
+			int resultaddr = Policy_opa_eval(entrypoint.Value, _dataAddr, _inputAddr, length, _dataHeapPtr + length);
 
 			return _envMemory.ReadNullTerminatedString(_store, resultaddr);
 		}
